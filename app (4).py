@@ -1,4 +1,22 @@
 import streamlit as st
+import subprocess
+import sys
+
+# Install dependencies FIRST (before any imports)
+def install_dependencies():
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "nltk", "scikit-learn", "pickle5"])
+        import nltk
+        nltk.download('punkt')
+        nltk.download('wordnet')
+        nltk.download('stopwords')
+        nltk.download('averaged_perceptron_tagger')
+    except Exception as e:
+        st.error(f"Dependency installation failed: {e}")
+
+install_dependencies()
+
+# Now import everything else
 import pickle
 import nltk
 from nltk.tokenize import word_tokenize
@@ -6,8 +24,12 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk import pos_tag
 import random
-import os
 
+# Rest of your original code continues here...
+class TextPreprocessor:
+    def __init__(self):
+        self.lemmatizer = WordNetLemmatizer()
+        self.stop_words = set(stopwords.words('english'))
 # Function to download NLTK data with error handling
 def download_nltk_data():
     try:
