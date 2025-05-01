@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pickle
 import nltk
@@ -7,18 +6,43 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk import pos_tag
 import random
+import os
 
-nltk.download('punkt')
-nltk.download('wordnet')
-nltk.download('stopwords')
-nltk.download('averaged_perceptron_tagger')
+# Function to download NLTK data with error handling
+def download_nltk_data():
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt', quiet=True)
+    
+    try:
+        nltk.data.find('corpora/wordnet')
+    except LookupError:
+        nltk.download('wordnet', quiet=True)
+    
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('stopwords', quiet=True)
+    
+    try:
+        nltk.data.find('taggers/averaged_perceptron_tagger')
+    except LookupError:
+        nltk.download('averaged_perceptron_tagger', quiet=True)
 
-# Load models
+# Download required NLTK data at startup
+download_nltk_data()
+
+# Load models with error handling
 @st.cache_resource
 def load_models():
-    with open('fitbot_models.pkl', 'rb') as f:
-        models = pickle.load(f)
-    return models['vectorizer'], models['nb_model']
+    try:
+        with open('fitbot_models.pkl', 'rb') as f:
+            models = pickle.load(f)
+        return models['vectorizer'], models['nb_model']
+    except Exception as e:
+        st.error(f"Error loading models: {str(e)}")
+        return None, None
 
 class TextPreprocessor:
     def __init__(self):
@@ -26,15 +50,19 @@ class TextPreprocessor:
         self.stop_words = set(stopwords.words('english'))
         
     def preprocess(self, text):
-        tokens = word_tokenize(text.lower())
-        tagged = pos_tag(tokens)
-        processed = []
-        for word, tag in tagged:
-            if word.isalpha() and word not in self.stop_words:
-                pos = tag[0].lower()
-                pos = pos if pos in ['a', 'r', 'n', 'v'] else 'n'
-                processed.append(self.lemmatizer.lemmatize(word, pos))
-        return ' '.join(processed)
+        try:
+            tokens = word_tokenize(text.lower())
+            tagged = pos_tag(tokens)
+            processed = []
+            for word, tag in tagged:
+                if word.isalpha() and word not in self.stop_words:
+                    pos = tag[0].lower()
+                    pos = pos if pos in ['a', 'r', 'n', 'v'] else 'n'
+                    processed.append(self.lemmatizer.lemmatize(word, pos))
+            return ' '.join(processed)
+        except Exception as e:
+            st.error(f"Error processing text: {str(e)}")
+            return text.lower()  # fallback to simple lowercase
 
 def generate_response(query, label):
     workout_db = {
@@ -71,67 +99,73 @@ def generate_response(query, label):
                    "Bring a lock for the locker room"]
     }
     
-    tokens = word_tokenize(query.lower())
-    keywords = []
-    for word in tokens:
-        if word in ['abs', 'chest', 'back', 'legs', 'arms']:
-            keywords.append(word)
-        elif word in ['lose', 'loss', 'weight']:
-            keywords.append('weight loss')
-        elif word in ['gain', 'muscle', 'mass']:
-            keywords.append('muscle gain')
-        elif word in ['equipment', 'machine', 'rack']:
-            keywords.append('equipment')
-        elif word in ['etiquette', 'manners', 'rules']:
-            keywords.append('etiquette')
+    try:
+        tokens = word_tokenize(query.lower())
+        keywords = []
+        for word in tokens:
+            if word in ['abs', 'chest', 'back', 'legs', 'arms']:
+                keywords.append(word)
+            elif word in ['lose', 'loss', 'weight']:
+                keywords.append('weight loss')
+            elif word in ['gain', 'muscle', 'mass']:
+                keywords.append('muscle gain')
+            elif word in ['equipment', 'machine', 'rack']:
+                keywords.append('equipment')
+            elif word in ['etiquette', 'manners', 'rules']:
+                keywords.append('etiquette')
+        
+        if label == 'workout':
+            responses = workout_db.get('general', [])
+            for kw in keywords:
+                responses.extend(workout_db.get(kw, []))
+            return random.choice(responses) if responses else "I recommend focusing on compound movements like squats and deadlifts."
+        
+        elif label == 'diet':
+            responses = diet_db.get('general', [])
+            for kw in keywords:
+                responses.extend(diet_db.get(kw, []))
+            return random.choice(responses) if responses else "A balanced diet with protein, carbs, and healthy fats is essential."
+        
+        elif label == 'gym':
+            responses = gym_db.get('general', [])
+            for kw in keywords:
+                responses.extend(gym_db.get(kw, []))
+            return random.choice(responses) if responses else "Remember to wipe down equipment after use and respect others' space."
     
-    if label == 'workout':
-        if not keywords:
-            return random.choice(workout_db['general'])
-        responses = []
-        for kw in keywords:
-            if kw in workout_db:
-                responses.extend(workout_db[kw])
-        return random.choice(responses) if responses else random.choice(workout_db['general'])
-    
-    elif label == 'diet':
-        if not keywords:
-            return random.choice(diet_db['general'])
-        responses = []
-        for kw in keywords:
-            if kw in diet_db:
-                responses.extend(diet_db[kw])
-        return random.choice(responses) if responses else random.choice(diet_db['general'])
-    
-    elif label == 'gym':
-        if not keywords:
-            return random.choice(gym_db['general'])
-        responses = []
-        for kw in keywords:
-            if kw in gym_db:
-                responses.extend(gym_db[kw])
-        return random.choice(responses) if responses else random.choice(gym_db['general'])
+    except Exception as e:
+        st.error(f"Error generating response: {str(e)}")
+        return "I encountered an error processing your request. Please try again."
 
 def main():
     st.title("FitBot - Your AI Fitness Assistant")
     st.write("Ask me about workouts, nutrition, or gym advice!")
     
     vectorizer, nb_model = load_models()
+    
+    if vectorizer is None or nb_model is None:
+        st.error("Failed to load the required models. Please check if 'fitbot_models.pkl' exists.")
+        return
+    
     preprocessor = TextPreprocessor()
     
     user_input = st.text_input("What would you like to know about fitness, nutrition, or gyms?")
     
     if user_input:
-        processed = preprocessor.preprocess(user_input)
-        vec = vectorizer.transform([processed])
-        pred = nb_model.predict(vec)[0]
-        
-        response = generate_response(user_input, pred)
-        
-        st.subheader("FitBot says:")
-        st.write(response)
-        
-        st.write(f"(This was classified as a {pred} question)")
+        with st.spinner('Processing your question...'):
+            try:
+                processed = preprocessor.preprocess(user_input)
+                vec = vectorizer.transform([processed])
+                pred = nb_model.predict(vec)[0]
+                
+                response = generate_response(user_input, pred)
+                
+                st.subheader("FitBot says:")
+                st.write(response)
+                
+                st.write(f"(This was classified as a {pred} question)")
+            
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
     main()
